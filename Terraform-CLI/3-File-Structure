@@ -1,0 +1,561 @@
+# Organizing Terraform Projects
+
+As your Terraform projects grow, putting everything into one file becomes difficult to read and maintain.
+
+Instead of having one huge `main.tf` file with hundreds of lines of code, it is a best practice to split your configuration into multiple `.tf` files.
+
+This makes your project:
+
+* Easier to read
+* Easier to maintain
+* Easier to debug
+* Easier to collaborate with other engineers
+
+The important thing to remember is:
+
+> **Terraform automatically reads every `.tf` file in the current directory.**
+
+It does **not** matter which file a resource is in. Terraform combines all the `.tf` files into one configuration before creating its Resource Graph.
+
+For example, if you have:
+
+```text
+main.tf
+variables.tf
+outputs.tf
+providers.tf
+network.tf
+ec2.tf
+database.tf
+```
+
+Terraform reads **all of them together**.
+
+This also means **resource referencing works across files**.
+
+Example:
+
+`network.tf`
+
+```hcl
+resource "aws_vpc" "main" {
+  cidr_block = "10.0.0.0/16"
+}
+```
+
+`ec2.tf`
+
+```hcl
+resource "aws_subnet" "public" {
+  vpc_id = aws_vpc.main.id
+}
+```
+
+Even though these resources are in different files, Terraform understands the dependency automatically.
+
+---
+
+# Common Terraform Files
+
+## `main.tf`
+
+Usually contains the **primary infrastructure** or acts as the starting point of your project.
+
+Example:
+
+* EC2 Instances
+* VPC
+* Security Groups
+
+Example:
+
+```hcl
+resource "aws_instance" "web" {
+
+}
+```
+
+---
+
+## `providers.tf`
+
+Contains provider configuration.
+
+This tells Terraform which cloud provider to connect to.
+
+Example:
+
+```hcl
+provider "aws" {
+
+  region = "us-east-1"
+
+}
+```
+
+You may also configure:
+
+* Azure
+* Google Cloud
+* GitHub
+* Kubernetes
+
+---
+
+## `variables.tf`
+
+Contains all input variables.
+
+Instead of hardcoding values throughout your project, define them once.
+
+Example:
+
+```hcl
+variable "region" {
+
+  type = string
+
+}
+```
+
+Later:
+
+```hcl
+provider "aws" {
+
+  region = var.region
+
+}
+```
+
+This makes your code reusable.
+
+---
+
+## `terraform.tfvars`
+
+Contains the **actual values** for variables.
+
+Example:
+
+`variables.tf`
+
+```hcl
+variable "region" {
+
+}
+```
+
+`terraform.tfvars`
+
+```hcl
+region = "us-east-1"
+```
+
+Instead of editing Terraform code, you simply change the values in one place.
+
+You can even have different variable files:
+
+```text
+dev.tfvars
+test.tfvars
+prod.tfvars
+```
+
+Example:
+
+```bash
+terraform apply -var-file="prod.tfvars"
+```
+
+This allows the same Terraform code to deploy different environments.
+
+### Should `terraform.tfvars` be in Git?
+
+It depends.
+
+If the file contains:
+
+* Passwords
+* API Keys
+* Access Keys
+* Database Passwords
+
+then **do not commit it to GitHub**.
+
+Many teams add it to:
+
+```text
+.gitignore
+```
+
+to prevent accidentally exposing sensitive information.
+
+If the file only contains non-sensitive values (such as regions or instance sizes), some teams choose to commit it. However, secrets should never be stored in version control.
+
+---
+
+## `outputs.tf`
+
+Contains Terraform outputs.
+
+Outputs display useful information after Terraform finishes.
+
+Example:
+
+```hcl
+output "instance_ip" {
+
+  value = aws_instance.web.public_ip
+
+}
+```
+
+Terraform prints:
+
+```text
+instance_ip = 18.201.55.120
+```
+
+Outputs can also be consumed by other Terraform configurations using remote state, making them useful for sharing information between projects.
+
+---
+
+# Terraform-Managed Files
+
+Terraform creates several files automatically. You should **not edit these manually**.
+
+---
+
+## `terraform.tfstate`
+
+This is Terraform's **state file**.
+
+It stores:
+
+* Every managed resource
+* Resource IDs
+* Current infrastructure state
+* Dependencies
+* Metadata
+
+Terraform uses this file to determine:
+
+* What already exists
+* What needs to change
+* What needs to be created
+* What needs to be destroyed
+
+Think of it as Terraform's memory.
+
+---
+
+## `terraform.tfstate.backup`
+
+Before Terraform updates the state file, it creates a backup.
+
+If something goes wrong, you still have the previous state.
+
+Think of it as a recovery copy of your state file.
+
+---
+
+## `.terraform.lock.hcl`
+
+Stores the exact provider versions used.
+
+Example:
+
+```text
+AWS Provider
+
+Version 6.55.0
+```
+
+Every team member downloads the exact same provider version.
+
+This prevents unexpected behavior caused by version differences.
+
+Terraform manages this file automatically.
+
+You should commit this file to Git.
+
+---
+
+# Large Projects
+
+For small labs, one directory is enough.
+
+Real-world projects are much larger.
+
+A common approach is to separate environments into different directories.
+
+Example:
+
+```text
+terraform/
+
+    dev/
+
+    test/
+
+    prod/
+```
+
+Each directory contains its own:
+
+* `.tf` files
+* State file
+* Variables
+* Resources
+
+For example:
+
+```text
+terraform/
+
+    dev/
+
+        main.tf
+
+        terraform.tfstate
+
+    prod/
+
+        main.tf
+
+        terraform.tfstate
+```
+
+The **development environment is completely separate from production**.
+
+If you destroy resources inside:
+
+```text
+dev/
+```
+
+only the development resources are removed.
+
+The production infrastructure is unaffected because it has its own configuration and state.
+
+This separation reduces risk and makes it much safer to test infrastructure changes.
+
+---
+
+# Terraform Blocks (Brief Overview)
+
+Terraform configurations are built from different block types.
+
+---
+
+## `terraform` Block
+
+The `terraform` block contains settings that control how Terraform itself behaves.
+
+It is **not** used to create infrastructure.
+
+Example:
+
+```hcl
+terraform {
+
+  required_version = ">= 1.0.0"
+
+  required_providers {
+
+    aws = {
+
+      source  = "hashicorp/aws"
+
+      version = "~> 6.0"
+
+    }
+
+  }
+
+}
+```
+
+This tells Terraform:
+
+* Minimum Terraform version required.
+* Which providers to use.
+* Which provider versions are allowed.
+
+---
+
+## `provider` Block
+
+A provider connects Terraform to a platform or service.
+
+Example:
+
+```hcl
+provider "aws" {
+
+  region = "us-east-1"
+
+}
+```
+
+Terraform now knows it should create resources inside AWS.
+
+---
+
+## `resource` Block
+
+Resources are the actual infrastructure Terraform manages.
+
+Examples:
+
+* EC2 Instances
+* S3 Buckets
+* VPCs
+* Databases
+
+Example:
+
+```hcl
+resource "aws_instance" "web" {
+
+}
+```
+
+---
+
+## `data` Block
+
+Data sources **read existing infrastructure**.
+
+Unlike resources, they do **not create anything**.
+
+Example:
+
+```hcl
+data "aws_availability_zones" "available" {
+
+}
+```
+
+Terraform retrieves the existing availability zones from AWS.
+
+---
+
+## `variable` Block
+
+Variables make Terraform code reusable.
+
+Instead of hardcoding values, you define them once and provide different values later.
+
+Example:
+
+```hcl
+variable "instance_type" {
+
+}
+```
+
+Later:
+
+```hcl
+instance_type = var.instance_type
+```
+
+---
+
+## `output` Block
+
+Outputs display useful information after Terraform finishes.
+
+Example:
+
+```hcl
+output "bucket_name" {
+
+  value = aws_s3_bucket.demo.bucket
+
+}
+```
+
+Outputs can also be shared with other Terraform configurations using remote state.
+
+---
+
+## `module` Block
+
+Modules are reusable collections of Terraform code.
+
+Instead of rewriting the same resources repeatedly, you package them into a module and call it whenever needed.
+
+Example:
+
+```hcl
+module "network" {
+
+  source = "./modules/network"
+
+}
+```
+
+Or use a public module:
+
+```hcl
+module "vpc" {
+
+  source = "terraform-aws-modules/vpc/aws"
+
+}
+```
+
+This downloads a pre-built VPC module from the Terraform Registry instead of writing all the networking code yourself.
+
+Modules are similar to functions in programming—they let you reuse code multiple times.
+
+---
+
+## `import` Block
+
+Sometimes infrastructure already exists because it was created manually or by another tool.
+
+Terraform cannot manage those resources until they are imported.
+
+Example:
+
+You manually created an S3 bucket called:
+
+```text
+my-company-logs
+```
+
+You can import it into Terraform so Terraform starts managing it.
+
+Example:
+
+```hcl
+import {
+
+  to = aws_s3_bucket.logs
+
+  id = "my-company-logs"
+
+}
+```
+
+After importing, the bucket becomes part of the Terraform state and Terraform can update or destroy it just like any other managed resource.
+
+---
+
+# Key Points to Remember
+
+* Split large Terraform projects into multiple `.tf` files for better readability and maintenance.
+* Terraform automatically reads **all** `.tf` files in the current directory as a single configuration.
+* Resource references work across different files.
+* `main.tf` usually contains your primary infrastructure.
+* `providers.tf` configures cloud providers.
+* `variables.tf` defines reusable input variables.
+* `terraform.tfvars` stores values for those variables and often stays out of Git if it contains secrets.
+* `outputs.tf` displays useful information and can share values with other Terraform projects.
+* `terraform.tfstate`, `terraform.tfstate.backup`, and `.terraform.lock.hcl` are automatically managed by Terraform.
+* Separate environments such as `dev`, `test`, and `prod` into different directories (or separate backends) to isolate infrastructure.
+* The main Terraform blocks are: `terraform`, `provider`, `resource`, `data`, `variable`, `output`, `module`, and `import`.
